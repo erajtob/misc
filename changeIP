@@ -1,0 +1,118 @@
+#!/bin/bash
+#Quick bash script to batch change given IPs in directory or given files
+  
+# Prompt for whether to process a directory or a file
+read -e -p "Enter 'D' for directory or 'F' for file: " input_type
+
+# Validate input type
+if [ "$input_type" == "D" ] || [ "$input_type" == "d" ]; then
+    read -e -p "Enter the directory path: " path
+    # Validate if the directory exists
+    if [ ! -d "$path" ]; then
+        echo "Directory does not exist. Exiting."
+        exit 1
+    fi
+elif [ "$input_type" == "F" ] || [ "$input_type" == "f" ]; then
+    read -e -p "Enter the file path: " path
+    # Validate if the file exists
+    if [ ! -f "$path" ]; then
+        echo "File does not exist. Exiting."
+        exit 1
+    fi
+else
+    echo "Invalid input. Exiting."
+    exit 1
+fi
+
+# Define the mapping of old IPs to new IPs
+declare -A ip_mapping=(
+    ["192.168.1.213"]="10.10.10.23"
+    ["192.168.1.214"]="10.10.10.24"
+    ["192.168.1.215"]="10.10.10.25"
+    ["192.168.1.242"]="10.10.10.26"
+)
+
+# Get the script filename
+script_filename=$(basename "$0")
+
+#check if a file contains any old IPs and print the changes line by line
+file_contains_old_ips() {
+    local file_path="$1"
+    local matching_ips=()
+    for old_ip in "${!ip_mapping[@]}"; do
+        if grep -qF "$old_ip" "$file_path"; then
+            matching_ips+=("$old_ip")
+            # Print each line with the old and new IPs
+            grep -nF "$old_ip" "$file_path" | while IFS=: read -r line_number line_content; do
+                echo "Found in file: $file_path, line $line_number: $line_content"
+            done
+        fi
+    done
+    if [ "${#matching_ips[@]}" -gt 0 ]; then
+        echo "Matching IPs found in file: ${matching_ips[*]}"
+        return 0  # Found at least one old IP in the file
+    else
+        return 1  # No old IPs found in the file
+    fi
+}
+
+# prompt for confirmation
+confirm_replace() {
+    read -p "Do you want to proceed with the replacement? (y/n): " answer
+    case "$answer" in
+        [Yy]*)
+            return 0  # Proceed
+            ;;
+        *)
+            return 1  # Cancel
+            ;;
+    esac
+}
+
+# iterate through files in the directory or process the specified file
+if [ -d "$path" ]; then
+    # If it's a directory
+    for file in "$path"/*; do
+        # Check if the file is a regular file and not the script itself
+        if [ -f "$file" ] && [ "$file" != "$path/$script_filename" ]; then
+            # Check if the file contains any of the old IPs before processing
+            if file_contains_old_ips "$file"; then
+                # Prompt for confirmation before proceeding with the replacement
+                if confirm_replace; then
+                    # Iterate through the old IPs and replace them with the new IPs
+                    for old_ip in "${!ip_mapping[@]}"; do
+                        new_ip="${ip_mapping[$old_ip]}"
+                        # Use the -i option to edit the file in-place, and -e to provide the sed script
+                        sed -i -e "s/$old_ip/$new_ip/g" "$file"
+                    done
+                    echo "Changes applied to file: $file"
+                else
+                    echo "Operation canceled for file: $file"
+                fi
+            else
+                echo "No matching IPs found in file: $file"
+            fi
+        fi
+    done
+elif [ -f "$path" ]; then
+    # If it's a file
+    # Check if the file contains any of the old IPs before processing
+    if file_contains_old_ips "$path"; then
+        # Prompt for confirmation before proceeding with the replacement
+        if confirm_replace; then
+            # Iterate through the old IPs and replace them with the new IPs
+            for old_ip in "${!ip_mapping[@]}"; do
+                new_ip="${ip_mapping[$old_ip]}"
+                # Use the -i option to edit the file in-place, and -e to provide the sed script
+                sed -i -e "s/$old_ip/$new_ip/g" "$path"
+            done
+            echo "Changes applied to file: $path"
+        else
+            echo "Operation canceled for file: $path"
+        fi
+    else
+        echo "No matching IPs found in file: $path"
+    fi
+fi
+
+echo "IP replacement complete."
